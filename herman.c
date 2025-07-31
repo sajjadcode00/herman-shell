@@ -7,7 +7,7 @@
 #include <fcntl.h>
 
 
-#define MAX_ARGS 64
+#define MAX_ARGS 1024
 
 char* read_command() { // read command from shell
 	printf("herman> ");
@@ -28,6 +28,7 @@ char** parse_command(char *line) { // manage command on arry for use in execvp
 		token = strtok(NULL, " \t\n");
 	}
 	args[i] = NULL;
+	return args;
 }
 
 
@@ -44,6 +45,24 @@ int main()
 				printf("%s\n", cwd);
 			} else {
 				perror("getcwd error\n");
+			}
+			continue;
+		}
+
+		if (strcmp(my_command[0], "cd") == 0) {
+			if (my_command[1] == NULL) {
+				char *home = getenv("HOME");
+				if (home != NULL) {
+					if (chdir(home) != 0) {
+						perror("cd");
+					}
+				} else {
+					fprintf(stderr, "HOME not set\n");
+				}
+			} else {
+				if (chdir(my_command[1]) != 0) {
+					perror("cd");
+				}
 			}
 			continue;
 		}
@@ -66,7 +85,13 @@ int main()
 			dup2(fd[1], STDOUT_FILENO);
 			close(fd[1]);
 
-			execvp(my_command[0], my_command);
+			if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
+				char *args[] = {"ls", "--color=auto", "-C", NULL};
+				execvp(args[0], args);
+			} else {
+				execvp(my_command[0], my_command);
+			}
+
 			perror("exec failed\n");
 			exit(EXIT_FAILURE);
 		} else {
