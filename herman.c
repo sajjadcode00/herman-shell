@@ -10,7 +10,7 @@
 #define MAX_ARGS 1024
 
 char* read_command() { // read command from shell
-	printf("herman> ");
+	printf("herman >> ");
 	fflush(stdout);
 	char* line = NULL;
 	size_t len = 0;
@@ -86,7 +86,7 @@ int main()
 			close(fd[1]);
 
 			if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
-				char *args[] = {"ls", "--color=auto", "-C", NULL};
+				char *args[] = {"ls", "--color=always", "-C", NULL};
 				execvp(args[0], args);
 			} else {
 				execvp(my_command[0], my_command);
