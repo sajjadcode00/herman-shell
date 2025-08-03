@@ -11,6 +11,14 @@
 
 const char *history_file = "/home/sajjad/Desktop/linux programing/mini Shell/.herman_history";
 
+int is_empty_or_whitespace(const char *s) {
+	while (*s) {
+		if (*s != ' ' && *s != '\t' && *s != '\n') return 0;
+		s++;
+	}
+	return 1;
+}
+
 char* read_command(){
 	printf("herman >> ");
 	fflush(stdout);
@@ -18,11 +26,13 @@ char* read_command(){
 	char* line = NULL;
 	size_t len = 0;
 	getline(&line, &len, stdin);
-	
-	FILE *fp = fopen(history_file, "a");
-	if (fp) {
-		fprintf(fp, "%s", line);
-		fclose(fp);
+
+	if (is_empty_or_whitespace(line)) {
+		FILE *fp = fopen(history_file, "a");
+		if (fp) {
+			fprintf(fp, "%s\n", line);
+			fclose(fp);
+		}
 	}
 
 	return line;
@@ -73,6 +83,21 @@ int main()
 				if (chdir(my_command[1]) != 0) {
 					perror("cd");
 				}
+			}
+			continue;
+		}
+
+		if (strcmp(my_command[0], "history") == 0) {
+			FILE *fp = fopen(history_file, "r");
+			if (fp) {
+				char buffer[1024];
+				int count = 1;
+				while (fgets(buffer, sizeof(buffer), fp)) {
+					printf("%d %s", count++, buffer);
+				}
+				fclose(fp);
+			} else {
+				perror("history");
 			}
 			continue;
 		}
