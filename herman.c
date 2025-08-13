@@ -5,11 +5,55 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 
 #define MAX_ARGS 1024
+#define MAX_HISTORY 500
+#define KEEP_LAST 10
 
-const char *history_file = "/home/sajjad/Desktop/linux programing/mini Shell/.herman_history";
+char file_path[1024]; // it must be global variable. because I use it in read_command().
+
+void check_trim_history(const char* history_path) {
+	FILE *fp = fopen(history_path, "r");
+	if (!fp) return;
+
+	char **lines = malloc(sizeof(char*) * MAX_HISTORY * 2);
+	int count = 0;
+	char buffer[1024];
+	while (fgets(buffer, sizeof(buffer), fp)) {
+       		 lines[count] = strdup(buffer);
+     	  	 count++;
+        }
+        fclose(fp);
+
+        if (count <= MAX_HISTORY) {
+        	for (int i = 0; i < count; i++) free(lines[i]);
+        	free(lines);
+        	return;
+        }
+
+        fp = fopen(history_path, "w");
+        if (!fp) {
+        	for (int i = 0; i < count; i++) free(lines[i]);
+        	free(lines);
+        	return;
+        }
+
+        int start = count - KEEP_LAST;
+        if (start < 0) start = 0;
+
+        for (int i = start; i < count; i++) {
+        	fprintf(fp, "%s", lines[i]);
+        }
+
+        fclose(fp);
+
+        for (int i = 0; i < count; i++) {
+       		 free(lines[i]);
+        }
+        free(lines);
+}
 
 int is_empty_or_whitespace(const char *s) {
 	while (*s) {
@@ -26,9 +70,13 @@ char* read_command(){
 	char* line = NULL;
 	size_t len = 0;
 	getline(&line, &len, stdin);
+	
+	if (line) {
+		line[strcspn(line, "\n")] = '\0';	
+	}
 
-	if (is_empty_or_whitespace(line)) {
-		FILE *fp = fopen(history_file, "a");
+	if (!is_empty_or_whitespace(line)) {
+		FILE *fp = fopen(file_path, "a");
 		if (fp) {
 			fprintf(fp, "%s\n", line);
 			fclose(fp);
@@ -36,7 +84,6 @@ char* read_command(){
 	}
 
 	return line;
-	free(line);
 }
 
 char** parse_command(char *line) { // manage command on arry for use in execvp
@@ -54,10 +101,40 @@ char** parse_command(char *line) { // manage command on arry for use in execvp
 
 int main() 
 {
+	const char* home = getenv("HOME");
+	if (home == NULL) {
+		fprintf(stderr, "HOME not set\n");
+		exit(1);	
+	}	
+
+	char dir_path[1024];
+	snprintf(dir_path, sizeof(dir_path), "%s/.herman", home);
+
+	//char file_path[1024]; local variable not work here.
+	snprintf(file_path, sizeof(file_path), "%s/history", dir_path);
+
+	struct stat st = {0};
+	if (stat(dir_path, &st) == -1) {
+		mkdir(dir_path, 0700);
+	}
+
+	FILE *fp = fopen(file_path, "a");
+	if (!fp) {
+		perror("Cannot creat history file");
+		exit(1);
+	}
+	fclose(fp);
+
 	while (1) {
 		char* line = read_command();	
 
 		char **my_command = parse_command(line);
+
+		if (my_command[0] == NULL) {
+			free(my_command);
+			free(line);
+			continue;
+		}
 
 		if (strcmp(my_command[0], "pwd") == 0) { //for pwd. actually this diff between addres of my_command and pwd
 			char cwd[1024];
@@ -88,7 +165,7 @@ int main()
 		}
 
 		if (strcmp(my_command[0], "history") == 0) {
-			FILE *fp = fopen(history_file, "r");
+			FILE *fp = fopen(file_path, "r");
 			if (fp) {
 				char buffer[1024];
 				int count = 1;
@@ -143,6 +220,9 @@ int main()
 			else {printf("%s", buffer);}
 	       	}
 
+
+		free(my_command);
+		free(line);
 	}
 
 		return 0;
