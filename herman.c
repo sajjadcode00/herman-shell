@@ -81,6 +81,7 @@ char* read_command(){
 			fprintf(fp, "%s\n", line);
 			fclose(fp);
 		}
+		check_trim_history(file_path); // Check limitation for history file
 	}
 
 	return line;
