@@ -6,11 +6,14 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 
 #define MAX_ARGS 1024
 #define MAX_HISTORY 500
 #define KEEP_LAST 10
+
+volatile sig_atomic_t child_pid = 0;
 
 char file_path[1024]; // it must be global variable. because I use it in read_command().
 
@@ -99,6 +102,15 @@ char** parse_command(char *line) { // manage command on arry for use in execvp
 	return args;
 }
 
+void handle_sigint(int sig) {
+	if (child_pid > 0) {
+		kill(child_pid, SIGKILL);
+	} else {
+		const char *msg = "\nherman >> ";
+		write(STDOUT_FILENO, msg, strlen(msg));
+	}
+}
+
 
 int main() 
 {
@@ -125,6 +137,12 @@ int main()
 		exit(1);
 	}
 	fclose(fp);
+
+	struct sigaction sa;
+	sa.sa_handler = &handle_sigint;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;	
+	sigaction(SIGINT, &sa, NULL);
 
 	while (1) {
 		char* line = read_command();	
@@ -180,6 +198,10 @@ int main()
 			continue;
 		}
 
+		if (strcmp(my_command[0], "exit") == 0) {
+			break;
+		}
+
 		int fd[2];
 		if (pipe(fd) == -1) { //this is for ls
 			perror("pipe\n");
@@ -214,8 +236,10 @@ int main()
 			int n = read(fd[0], buffer, sizeof(buffer) - 1);
 			buffer[n] = '\0';
 			close(fd[0]);
-
+			
+			child_pid = pid1;
 			wait(NULL);
+			child_pid = 0;
 
 			if (n == 0) {printf("There is no file or directory\n");}
 			else {printf("%s", buffer);}
