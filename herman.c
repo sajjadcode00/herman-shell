@@ -7,15 +7,19 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include <time.h> 
 
 
 #define MAX_ARGS 1024
 #define MAX_HISTORY 500
 #define KEEP_LAST 10
+#define MAX_JOBS 100
 
 volatile sig_atomic_t child_pid = 0;
 
 char file_path[1024]; // it must be global variable. because I use it in read_command().
+		
+int is_bg; // for bg/fg proccess
 
 void check_trim_history(const char* history_path) {
 	FILE *fp = fopen(history_path, "r");
@@ -111,9 +115,57 @@ void handle_sigint(int sig) {
 	}
 }
 
+void handle_sigchld(int sig) {
+	while (waitpid(-1, NULL, WNOHANG) > 0);
+}
+
+void handle_sigtstp(int sig) {
+	if (child_pid > 0) {
+		kill(child_pid, SIGTSTP);
+		printf ("\n[1]+ stopped (pid=%d)\n", child_pid);
+	}
+}
+
+typedef struct {
+		pid_t pid;
+		char command[256];
+		int is_running;
+	} job;
+
+static job jobs[MAX_JOBS];
+static int job_count = 0;
+
+static int add_job(pid_t pid, const char *cmd, int running) {
+    if (job_count >= MAX_JOBS) return -1;
+    jobs[job_count].pid = pid;
+    strncpy(jobs[job_count].command, cmd ? cmd : "", sizeof(jobs[job_count].command)-1);
+    jobs[job_count].command[sizeof(jobs[job_count].command)-1] = '\0';
+    jobs[job_count].is_running = running;
+    return job_count++;
+}
+
+static int find_last_stopped_job(void) {
+    for (int i = job_count-1; i >= 0; --i) {
+        if (jobs[i].pid > 0 && jobs[i].is_running == 0) return i;
+    }
+    return -1;
+}
+
+static int find_job_by_pid(pid_t pid) {
+    for (int i=0;i<job_count;i++) if (jobs[i].pid == pid) return i;
+    return -1;
+}
+
+static void remove_job_by_pid(pid_t pid) {
+    int i = find_job_by_pid(pid);
+    if (i < 0) return;
+    for (int k=i+1;k<job_count;k++) jobs[k-1]=jobs[k];
+    job_count--;
+}
+
 
 int main() 
-{
+{	
 	const char* home = getenv("HOME");
 	if (home == NULL) {
 		fprintf(stderr, "HOME not set\n");
@@ -138,12 +190,33 @@ int main()
 	}
 	fclose(fp);
 
-	struct sigaction sa;
+	struct sigaction sa; // sa -> for sigint
 	sa.sa_handler = &handle_sigint;
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_RESTART;	
-	sigaction(SIGINT, &sa, NULL);
+	if (sigaction(SIGINT, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(1);
+	}
 
+	struct sigaction sa2; // sa2 -> for sigchld
+	sa2.sa_handler = &handle_sigchld;
+	sigemptyset(&sa2.sa_mask);
+	sa2.sa_flags = SA_RESTART;
+	if (sigaction(SIGCHLD, &sa2, NULL) == -1) {
+		perror("sigaction");
+		exit(1);
+	}
+
+	struct sigaction sa3; // sa3 -> for sigtstp
+	sa3.sa_handler = &handle_sigtstp;
+	sigemptyset(&sa3.sa_mask);
+	sa3.sa_flags = SA_RESTART;
+	if (sigaction(SIGTSTP, &sa3, NULL) == -1) {
+		perror("sigaction");
+		exit(1);
+	}
+	
 	while (1) {
 		char* line = read_command();	
 
@@ -188,7 +261,7 @@ int main()
 			if (fp) {
 				char buffer[1024];
 				int count = 1;
-				while (fgets(buffer, sizeof(buffer), fp)) {
+				while (fgets(buffer, sizeof(buffer), fp)){
 					printf("%d %s", count++, buffer);
 				}
 				fclose(fp);
@@ -201,6 +274,34 @@ int main()
 		if (strcmp(my_command[0], "exit") == 0) {
 			break;
 		}
+
+		if (strcmp(my_command[0], "echo") == 0) {
+			if (my_command[1] == NULL) {
+				printf("\n");
+			} else {
+				for (int i = 1; my_command[i] != NULL; i++) {
+					printf("%s", my_command[i]);
+					if (my_command[i + 1] == NULL) {
+						printf(" ");
+					}
+					printf("\n");
+				} 
+			}
+			continue;	
+		}
+
+		if (strcmp(my_command[0], "data") == 0) {
+			time_t t = time(NULL);
+			printf("%s", ctime(&t));
+			continue;
+		}
+
+		if (strcmp(line, "clear") == 0) {
+			printf("\033[H\033[J");
+			continue;
+		}
+
+				
 
 		int fd[2];
 		if (pipe(fd) == -1) { //this is for ls
@@ -229,6 +330,39 @@ int main()
 
 			perror("exec failed\n");
 			exit(EXIT_FAILURE);
+
+			int redirect_index = -1;
+			for (int i = 0; my_command[i] != NULL; i++) {
+				if (strcmp(my_command[i], ">") == 0) {
+					redirect_index = i;
+					break;
+				}
+			}
+			int saved_stdout = dup(STDOUT_FILENO);
+			if (redirect_index != -1) {
+				if (my_command[redirect_index + 1] == NULL) {
+					fprintf(stderr, "Error: No file specified for redirection\n");
+					exit(1);
+				}
+
+				char *filename = my_command[redirect_index + 1];
+				int fd_redirect = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+				if (fd_redirect < 0) {
+					perror("open");
+					exit(1);
+				}
+	
+				my_command[redirect_index] = NULL;
+				if (dup2(fd_redirect, STDOUT_FILENO) < 0) {
+					perror("dup2");
+					exit(1);
+				}
+				close(fd_redirect);
+			}
+
+			execvp(my_command[0], my_command);
+			perror("execvp");
+			exit(1);
 		} else {
 			//parent procces
 			close(fd[1]);
@@ -238,6 +372,7 @@ int main()
 			close(fd[0]);
 			
 			child_pid = pid1;
+			wait(NULL);
 			wait(NULL);
 			child_pid = 0;
 
