@@ -1,4 +1,0 @@
-[0m[01;32ma.out[0m  herman.c  tttt.txt
-herman >> 
-herman >> 
-herman >> herman >> 

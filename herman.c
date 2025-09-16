@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h> 
 #include <string.h>
+#include <stdbool.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -302,11 +303,20 @@ int main()
 		}
 
 				
+		int redirect_index = -1; //redirection for >
+		for (int i = 0; my_command[i] != NULL; i++) {
+			if (strcmp(my_command[i], ">") == 0) {
+				redirect_index = i;
+				break;
+			}
+		}
 
 		int fd[2];
-		if (pipe(fd) == -1) { //this is for ls
-			perror("pipe\n");
-			exit(EXIT_FAILURE);
+		if (redirect_index == -1) {
+			if (pipe(fd) == -1) {
+				perror("pipe");
+				exit(EXIT_FAILURE);
+			}
 		}
 
 		pid_t pid1 = fork();
@@ -317,67 +327,62 @@ int main()
 
 		if (pid1 == 0) {
 			//child proces
-			close(fd[0]);
-			dup2(fd[1], STDOUT_FILENO);
-			close(fd[1]);
 
-			if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
-				char *args[] = {"ls", "--color=always", "-C", NULL};
-				execvp(args[0], args);
-			} else {
-				execvp(my_command[0], my_command);
-			}
+         	        if (redirect_index != -1) {
+        			  if (my_command[redirect_index + 1] == NULL) {
+		               	  	   fprintf(stderr, "Error: No file specified for redirection\n");
+					   exit(1);
+          			  }
+       			 char *filename = my_command[redirect_index + 1];
+       			 int fd_redirect = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+       			 if (fd_redirect < 0) {
+           			 perror("open");
+           			 exit(1);
+       			 }
+       			 my_command[redirect_index] = NULL;
+       			 if (dup2(fd_redirect, STDOUT_FILENO) < 0) {
+           			 perror("dup2");
+           			 close(fd_redirect);
+           			 exit(1);
+       			 }
+       			 close(fd_redirect);
+       			 execvp(my_command[0], my_command);
+       			 perror("execvp");
+       			 exit(1);
+   			 } else {
+       				 close(fd[0]);
+       				 dup2(fd[1], STDOUT_FILENO);
+       				 close(fd[1]);
+       				 if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
+           				 char *args[] = {"ls", "--color=always", "-C", NULL};
+           				 execvp(args[0], args);
+       			 } else {
+           			 execvp(my_command[0], my_command);
+       				 }
+       			 perror("exec failed");
+       			 exit(EXIT_FAILURE);
+   			 }
 
-			perror("exec failed\n");
-			exit(EXIT_FAILURE);
-
-			int redirect_index = -1;
-			for (int i = 0; my_command[i] != NULL; i++) {
-				if (strcmp(my_command[i], ">") == 0) {
-					redirect_index = i;
-					break;
-				}
-			}
-			int saved_stdout = dup(STDOUT_FILENO);
-			if (redirect_index != -1) {
-				if (my_command[redirect_index + 1] == NULL) {
-					fprintf(stderr, "Error: No file specified for redirection\n");
-					exit(1);
-				}
-
-				char *filename = my_command[redirect_index + 1];
-				int fd_redirect = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-				if (fd_redirect < 0) {
-					perror("open");
-					exit(1);
-				}
-	
-				my_command[redirect_index] = NULL;
-				if (dup2(fd_redirect, STDOUT_FILENO) < 0) {
-					perror("dup2");
-					exit(1);
-				}
-				close(fd_redirect);
-			}
-
-			execvp(my_command[0], my_command);
-			perror("execvp");
-			exit(1);
 		} else {
 			//parent procces
+
 			close(fd[1]);
 			char buffer[4096];
-			int n = read(fd[0], buffer, sizeof(buffer) - 1);
-			buffer[n] = '\0';
+			ssize_t n;
+			bool got_output = false;
+
+			while ((n = read(fd[0], buffer, sizeof(buffer) - 1)) > 0) {
+				buffer[n] = '\0';
+				printf("%s", buffer);
+				got_output = true;
+			}
 			close(fd[0]);
 			
-			child_pid = pid1;
 			wait(NULL);
-			wait(NULL);
-			child_pid = 0;
+			if (!got_output && redirect_index == -1) {
+				printf("There is no such a file or directory\n");
+			}
 
-			if (n == 0) {printf("There is no file or directory\n");}
-			else {printf("%s", buffer);}
 	       	}
 
 
