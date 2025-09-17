@@ -63,6 +63,22 @@ void check_trim_history(const char* history_path) {
         free(lines);
 }
 
+void print_random_joke(void) {
+   	 FILE *fp = popen( "curl -s -H \"Accept: application/json\" https://icanhazdadjoke.com/ | jq -r '.joke'","r");
+   	 if (!fp) {
+         perror("popen");
+         return;
+	 }
+
+   	 char joke[512];
+   	 if (fgets(joke, sizeof(joke), fp)) {
+       		 printf("\n@@ Joke of the Day:\n%s\n\n", joke);
+    	} else {
+		printf("\n@@ Joke of the Day:\n(No internet - could not fetch a joke.)\n\n");
+	}
+	 pclose(fp);
+}
+
 int is_empty_or_whitespace(const char *s) {
 	while (*s) {
 		if (*s != ' ' && *s != '\t' && *s != '\n') return 0;
@@ -217,6 +233,8 @@ int main()
 		perror("sigaction");
 		exit(1);
 	}
+
+	print_random_joke();
 	
 	while (1) {
 		char* line = read_command();	
