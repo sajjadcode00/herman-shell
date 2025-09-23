@@ -1,14 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h> 
-#include <string.h>
-#include <stdbool.h>
-#include <dirent.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <signal.h>
-#include <time.h> 
+#include "my_lib.h"
 
 
 #define MAX_ARGS 1024
@@ -88,16 +78,42 @@ int is_empty_or_whitespace(const char *s) {
 }
 
 char* read_command(){
-	printf("herman >> ");
+	//printf("herman>> ");
 	fflush(stdout);
+	char cwd[1024];
+    	getcwd(cwd, sizeof(cwd));
+
+    	const char* home = getenv("HOME");
+    	char display_path[1024];
+
+    	if (home && strncmp(cwd, home, strlen(home)) == 0) {
+        	snprintf(display_path, sizeof(display_path), "~%s", cwd + strlen(home));
+    	} else {
+        	snprintf(display_path, sizeof(display_path), "%s", cwd);
+    	}
+
+    	char prompt[2048];
+    	snprintf(prompt, sizeof(prompt),
+             "\001\033[1;32m\002herman\001\033[0m\002:\001\033[1;34m\002%s\001\033[0m\002$ ",
+             display_path);
+
 
 	char* line = NULL;
-	size_t len = 0;
-	getline(&line, &len, stdin);
+	line = readline(prompt);
+	//size_t len = 0;
+	//getline(&line, &len, stdin);
+
 	
 	if (line) {
 		line[strcspn(line, "\n")] = '\0';	
 	}
+
+	if (!line) {
+		printf("\n");
+		exit(0);
+	}
+
+	add_history(line);
 
 	if (!is_empty_or_whitespace(line)) {
 		FILE *fp = fopen(file_path, "a");
@@ -127,7 +143,7 @@ void handle_sigint(int sig) {
 	if (child_pid > 0) {
 		kill(child_pid, SIGKILL);
 	} else {
-		const char *msg = "\nherman >> ";
+		const char *msg = "\nherman>> ";
 		write(STDOUT_FILENO, msg, strlen(msg));
 	}
 }
@@ -199,6 +215,9 @@ int main()
 	if (stat(dir_path, &st) == -1) {
 		mkdir(dir_path, 0700);
 	}
+
+	using_history();
+	read_history(file_path);
 
 	FILE *fp = fopen(file_path, "a");
 	if (!fp) {
@@ -300,11 +319,11 @@ int main()
 			} else {
 				for (int i = 1; my_command[i] != NULL; i++) {
 					printf("%s", my_command[i]);
-					if (my_command[i + 1] == NULL) {
+					if (my_command[i + 1] != NULL) {
 						printf(" ");
 					}
-					printf("\n");
 				} 
+				printf("\n");
 			}
 			continue;	
 		}
@@ -387,22 +406,35 @@ int main()
 			close(fd[1]);
 			char buffer[4096];
 			ssize_t n;
-			bool got_output = false;
+			int got_output = 0;
 
 			while ((n = read(fd[0], buffer, sizeof(buffer) - 1)) > 0) {
 				buffer[n] = '\0';
 				printf("%s", buffer);
-				got_output = true;
+				got_output = 1;
 			}
 			close(fd[0]);
 			
-			wait(NULL);
-			if (!got_output && redirect_index == -1) {
-				printf("There is no such a file or directory\n");
+			//wait(NULL);
+			int status;
+			waitpid(pid1, &status, 0);
+
+			if (WIFEXITED(status)) {
+    				int code = WEXITSTATUS(status);
+
+    				if (!got_output) {
+        				if (code == 0) {
+            					//Seccessful. but do nothing
+        				} else if (code == 127) {
+            					fprintf(stderr, "command not found\n");
+        				} else {
+            					fprintf(stderr, "error: command exited with code %d\n", code);
+        				}	
+    				}
+			} else if (WIFSIGNALED(status)) {
+    				fprintf(stderr, "terminated by signal %d\n", WTERMSIG(status));
 			}
-
-	       	}
-
+		} 
 
 		free(my_command);
 		free(line);

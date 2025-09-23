@@ -1,6 +1,0 @@
-a.out
-e.txt
-herman.c
-r.txt
-tttt.txt
-t.txt
