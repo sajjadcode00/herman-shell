@@ -6,12 +6,37 @@
 #define KEEP_LAST 10
 #define MAX_JOBS 100
 
-volatile sig_atomic_t child_pid = 0;
+volatile sig_atomic_t child_pid = 0; //pid1
+volatile sig_atomic_t child_pid_grep = 0; //pid_grep
 
 char file_path[1024]; // it must be global variable. because I use it in
                       // read_command().
 
 int is_bg; // for bg/fg proccess
+
+char global_prompt[2048] = "";
+
+void update_prompt() {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        log_error("getcwd failed");
+        strcpy(global_prompt, "\033[1;32mherman\033[0m$ "); 
+        return;
+    }
+
+    const char *home = getenv("HOME");
+    char display_path[1024];
+
+    if (home && strncmp(cwd, home, strlen(home)) == 0) {
+        snprintf(display_path, sizeof(display_path), "~%s", cwd + strlen(home));
+    } else {
+        snprintf(display_path, sizeof(display_path), "%s", cwd);
+    }
+
+    snprintf(global_prompt, sizeof(global_prompt),
+             "\033[1;32mherman\033[0m:\033[1;34m%s\033[0m$ ",
+             display_path);
+}
 
 void check_trim_history(const char *history_path) {
   FILE *fp = fopen(history_path, "r");
@@ -101,14 +126,13 @@ char *read_command() {
     snprintf(display_path, sizeof(display_path), "%s", cwd);
   }
 
-  char prompt[2048];
-  snprintf(prompt, sizeof(prompt),
-           "\001\033[1;32m\002herman\001\033[0m\002:\001\033[1;34m\002%"
-           "s\001\033[0m\002$ ",
-           display_path);
-
+  update_prompt();
+  char rl_prompt[4096];
+  snprintf(rl_prompt, sizeof(rl_prompt),
+             "\001\033[1;32m\002herman\001\033[0m\002:\001\033[1;34m\002%s\001\033[0m\002$ ",
+             global_prompt + strlen("\033[1;32mherman\033[0m:"));
   char *line = NULL;
-  line = readline(prompt);
+  line = readline(rl_prompt);
   // size_t len = 0;
   // getline(&line, &len, stdin);
 
@@ -148,24 +172,45 @@ char **parse_command(char *line) { // manage command on arry for use in execvp
 }
 
 void handle_sigint(int sig) {
+  log_msg("Received SIGINT, child_pid=%d, child_pid_grep=%d", child_pid, child_pid_grep);
   if (child_pid > 0) {
-    kill(child_pid, SIGKILL);
-  } else {
-    const char *msg = "\nherman>> ";
-    write(STDOUT_FILENO, msg, strlen(msg));
+      kill(child_pid, SIGKILL);
   }
+    if (child_pid_grep > 0) {
+        kill(child_pid_grep, SIGKILL);
+    }
+    write(STDOUT_FILENO, "\n", 1);
+    write(STDOUT_FILENO, global_prompt, strlen(global_prompt));
+    rl_forced_update_display();
 }
 
 void handle_sigchld(int sig) {
-  while (waitpid(-1, NULL, WNOHANG) > 0)
-    ;
+  log_msg("Received SIGCHLD");
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        log_msg("Reaped a child process");
+    }
 }
 
 void handle_sigtstp(int sig) {
-  if (child_pid > 0) {
-    kill(child_pid, SIGTSTP);
-    printf("\n[1]+ stopped (pid=%d)\n", child_pid);
-  }
+    log_msg("Received SIGTSTP, child_pid=%d, child_pid_grep=%d", child_pid, child_pid_grep);
+    if (child_pid > 0) {
+        kill(child_pid, SIGTSTP);
+        write(STDOUT_FILENO, "\n[1]+ stopped (pid=", 19);
+        char pid_str[16];
+        snprintf(pid_str, sizeof(pid_str), "%d)\n", child_pid);
+        write(STDOUT_FILENO, pid_str, strlen(pid_str));
+        write(STDOUT_FILENO, global_prompt, strlen(global_prompt));
+        rl_forced_update_display();
+    }
+    if (child_pid_grep > 0) {
+        kill(child_pid_grep, SIGTSTP);
+        write(STDOUT_FILENO, "\n[2]+ stopped (pid=", 19);
+        char pid_str[16];
+        snprintf(pid_str, sizeof(pid_str), "%d)\n", child_pid_grep);
+        write(STDOUT_FILENO, pid_str, strlen(pid_str));
+        write(STDOUT_FILENO, global_prompt, strlen(global_prompt));
+        rl_forced_update_display();
+    }
 }
 
 typedef struct {
@@ -243,7 +288,7 @@ int main() {
   struct sigaction sa; // sa -> for sigint
   sa.sa_handler = &handle_sigint;
   sigemptyset(&sa.sa_mask);
-  sa.sa_flags = SA_RESTART;
+  sa.sa_flags = 0;
   if (sigaction(SIGINT, &sa, NULL) == -1) {
     perror("sigaction");
     exit(1);
@@ -261,7 +306,7 @@ int main() {
   struct sigaction sa3; // sa3 -> for sigtstp
   sa3.sa_handler = &handle_sigtstp;
   sigemptyset(&sa3.sa_mask);
-  sa3.sa_flags = SA_RESTART;
+  sa3.sa_flags = 0;
   if (sigaction(SIGTSTP, &sa3, NULL) == -1) {
     perror("sigaction");
     exit(1);
@@ -353,20 +398,14 @@ int main() {
       printf("\033[H\033[J");
       continue;
     }
-
+    
+    int pipe_index = -1; //for pipe line
     int redirect_index = -1; // redirection for >
     for (int i = 0; my_command[i] != NULL; i++) {
       if (strcmp(my_command[i], ">") == 0) {
         redirect_index = i;
-        break;
-      }
-    }
-
-    int pipe_index = -1; // pipe line for use grep
-    for (int i = 0; my_command[i] != NULL; i++) {
-      if (strcmp(my_command[i], "|") == 0) {
-        pipe_index = i;
-        break;
+      } else if (strcmp(my_command[i], "|") == 0) {
+      	pipe_index = i;
       }
     }
 
@@ -395,14 +434,22 @@ int main() {
       }
     }
 
-    if (redirect_index == -1) {
-      if (pipe(fd) < 0) {
-        log_error("pipe creation failed for capturing output");
-        exit(EXIT_FAILURE);
-      }
+    if (redirect_index != -1 && pipe_index != -1) {
+	log_error("Redirection with pipe not supported yet");
+    	free(my_command);
+    	free(line);
+    	continue;
+    }
+    
+    if (redirect_index == -1 && pipe_index == -1) {
+    	if (pipe(fd) < 0) {
+            log_error("pipe creation failed for capturing output");
+            free(my_command);
+            free(line);
+            continue;
+        }  
     }
 
-    log_msg("About to fork for cmd1: %s", cmd1[0]);
     pid_t pid1 = fork();
     if (pid1 < 0) {
       log_error("fork failed for cmd1");
@@ -410,64 +457,72 @@ int main() {
         close(fd_pipeline[0]);
         close(fd_pipeline[1]);
       }
+      if (redirect_index == -1 && pipe_index == -1) {
+      	close(fd[0]);
+	close(fd[1]);
+      }
       free(my_command);
       free(line);
       continue;
     }
 
     if (pid1 == 0) { // child cmd1
-      if (pipe_index != -1) {
-	close(fd_pipeline[0]);      
+    if (pipe_index != -1) {
+        close(fd_pipeline[0]);
         if (dup2(fd_pipeline[1], STDOUT_FILENO) < 0) {
-          log_error("dup2 failed for child pid=%d", getpid());
-          _exit(1);
-        } else {
-		close(fd_pipeline[1]);
-		execvp(cmd1[0], cmd1);
-      		log_error("execvp failed for cmd1=%s", cmd1[0]);
-     		 _exit(127);	
-	}
-      }
-
-       if (redirect_index != -1) {
-        if (my_command[redirect_index + 1] == NULL) {
-          log_error("No file specified for redirection");
-          _exit(1);
+            log_error("dup2 failed for child pid=%d", getpid());
+            _exit(1);
         }
-        int fd_redirect = open(my_command[redirect_index + 1],
-                               O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        close(fd_pipeline[1]);
+        execvp(cmd1[0], cmd1);
+        log_error("execvp failed for cmd1=%s", cmd1[0]);
+        _exit(127);
+    }
+
+    if (redirect_index != -1) {
+        if (my_command[redirect_index + 1] == NULL) {
+            log_error("No file specified for redirection");
+            _exit(1);
+        }
+        int fd_redirect = open(my_command[redirect_index + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd_redirect < 0) {
-          log_error("open failed for redirection file: %s",
-                    my_command[redirect_index + 1]);
-          _exit(1);
+            log_error("open failed for redirection file: %s",
+                      my_command[redirect_index + 1]);
+            _exit(1);
         }
         my_command[redirect_index] = NULL;
         if (dup2(fd_redirect, STDOUT_FILENO) < 0) {
-          log_error("dup2 failed for redirection");
-          close(fd_redirect);
-          _exit(1);
+            log_error("dup2 failed for redirection");
+            close(fd_redirect);
+            _exit(1);
         }
         close(fd_redirect);
-      } else {
-      		close(fd[0]);
-		dup2(fd[1], STDOUT_FILENO);
-		close(fd[1]);
-       		if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
-      			char *args[] = {"ls", "--color=always", "-C", NULL};
-			execvp(args[0], args);
-			log_error("execvp failed for ls");
-			_exit(127);
-      		} else {
-			execvp(my_command[0], my_command);
-        		log_error("execvp failed for cmd1=%s", my_command[0]);
-    			_exit(127);
-		}
-      }
-
-     // 
+        execvp(my_command[0], my_command);  
+        log_error("execvp failed for cmd1=%s", my_command[0]);
+        _exit(127);
+    } else if (pipe_index == -1) {  
+    	    close(fd[0]);
+            if (dup2(fd[1], STDOUT_FILENO) < 0) {
+            log_error("dup2 failed for output pipe");
+            _exit(1);
+        }
+        close(fd[1]);
+        if (strcmp(my_command[0], "ls") == 0 && my_command[1] == NULL) {
+            char *args[] = {"ls", "--color=always", "-C", NULL};
+            execvp(args[0], args);
+            log_error("execvp failed for ls");
+            _exit(127);
+        } else {
+            execvp(my_command[0], my_command);
+            log_error("execvp failed for cmd1=%s", my_command[0]);
+            _exit(127);
+        }
     }
+  }
 
     // parent process
+    child_pid = pid1;
+
     log_msg("Parent pid=%d waiting for child pid1=%d", getpid(), pid1);
 
     pid_t pid_grep = -1;
@@ -496,6 +551,7 @@ int main() {
         log_error("execvp failed for cmd2=%s", cmd2[0]);
         _exit(127);
       }
+      child_pid_grep = pid_grep;
     }
 
     // parent closes pipeline fds
@@ -505,16 +561,16 @@ int main() {
     }
 
     // read fd if needed
-    close(fd[1]);
-    char buffer[4096];
-    ssize_t n;
-    int got_output = 0;
-    while ((n = read(fd[0], buffer, sizeof(buffer) - 1)) > 0) {
-      buffer[n] = '\0';
-      printf("%s", buffer);
-      got_output = 1;
+    if (redirect_index == -1 && pipe_index == -1) {
+    	close(fd[1]);
+    	char buffer[4096];
+    	ssize_t n;
+   	while ((n = read(fd[0], buffer, sizeof(buffer) - 1)) > 0) {
+        	buffer[n] = '\0';
+        	printf("%s", buffer);
+    	}
+    	close(fd[0]);
     }
-    close(fd[0]);
 
     // wait for children
     int status1 = 0, status2 = 0;
@@ -533,6 +589,9 @@ int main() {
       int code2 = WEXITSTATUS(status2);
       log_msg("Child pid_grep=%d exited with code %d", pid_grep, code2);
     }
+
+    child_pid = 0;
+    child_pid_grep = 0;
 
     free(my_command);
     free(line);
