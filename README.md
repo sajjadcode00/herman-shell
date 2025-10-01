@@ -1,48 +1,99 @@
-# Nerd Fonts
+# Herman Shell
 
-This is an archived font from the Nerd Fonts release v3.4.0.
+**Herman** is a minimal Linux shell written in C.  
+It supports built-in commands, I/O redirection, signal handling, and command history.  
+This project is primarily a **student project** for learning Linux system programming, but it is also open-source for anyone interested.  
 
-For more information see:
-* https://github.com/ryanoasis/nerd-fonts/
-* https://github.com/ryanoasis/nerd-fonts/releases/latest/
+---
 
-# JetBrains Mono
+## What is "Herman"?
+**Herman** is the ache of holding a wish you cannot reach — a quiet yet profound wound born from hope.
 
-JetBrains Mono: a typeface made for developers
+---
 
-For more information have a look at the upstream website: https://github.com/JetBrains/JetBrainsMono
+## ✨ Features
+- Built-in commands:
+  - `pwd` → show current directory
+  - `cd` → change directory
+  - `history` → show command history
+  - `echo` → print text
+  - `date` → show system time
+  - `clear` → clear the screen
+  - `exit` → close the shell
+- Command execution using `execvp`
+- I/O redirection (`>`)
+- Pipes (`|`)
+- Colored `ls` output
+- Signal handling:
+  - `Ctrl+C` → kill foreground process
+  - `Ctrl+Z` → stop foreground process
+- Command history saved in `~/.herman/history`
+- Basic job control structure (placeholders for `fg`, `bg`, `jobs`)
 
-Version: 2.304
+---
 
-## Which font?
+## 📂 Project Structure
+```
+herman-shell/
+├── herman.c        # main source code
+├── herman_log.c    # logging functions
+├── herman_log.h    # logging header
+├── my_lib.h        # custom helper functions/macros
+├── config.h        # configuration constants
+├── Makefile        # build instructions
+└── README.md       # project documentation
+```
 
-### TL;DR
+---
 
-* Pick your font family:
-  * If you are limited to monospaced fonts (because of your terminal, etc) then pick a font with `Nerd Font Mono` (or `NFM`).
-  * If you want to have bigger icons (usually around 1.5 normal letters wide) pick a font without `Mono` i.e. `Nerd Font` (or `NF`). Most terminals support this, but ymmv.
-  * If you work in a proportional context (GUI elements or edit a presentation etc) pick a font with `Nerd Font Propo` (or `NFP`).
+## ⚙️ Build & Run
+To compile the shell:
+```bash
+make
+```
 
-### Ligatures
+This will produce an executable:
+```bash
+./herman
+```
 
-Ligatures are generally preserved in the patched fonts.
-Nerd Fonts `v2.0.0` had no ligatures in the `Nerd Font Mono` fonts, this has been dropped with `v2.1.0`.
-If you have a ligature-aware terminal and don't want ligatures you can (usually) disable them in the terminal settings.
+---
 
-### Explanation
+## 📖 Usage Examples
+```bash
+herman>> pwd
+/home/sajjad
 
-Once you narrow down your font choice of family (`Droid Sans`, `Inconsolata`, etc) and style (`bold`, `italic`, etc) you have 2 main choices:
+herman>> ls -l > files.txt
+herman>> cat files.txt
 
-#### `Option 1: Download already patched font`
+herman>> date
+Mon Sep 29 12:34:56 2025
 
- * For a stable version download a font package from the [release page](https://github.com/ryanoasis/nerd-fonts/releases)
- * Or download the development version from the folders here
+herman>> echo Hello World
+Hello World
 
-#### `Option 2: Patch your own font`
+herman>> clear
+# screen is cleared
 
- * Patch your own variations with the various options provided by the font patcher (i.e. not include all symbols for smaller font size)
+herman>> history
+1 pwd
+2 ls -l > files.txt
+3 date
+```
 
-For more information see: [The FAQ](https://github.com/ryanoasis/nerd-fonts/wiki/FAQ-and-Troubleshooting#which-font)
+---
 
-[SIL-RFN]:http://scripts.sil.org/cms/scripts/page.php?item_id=OFL_web_fonts_and_RFNs#14cbfd4a
+## 🚀 Future Work
+- Implement `jobs`, `fg`, `bg`
+- Improve error handling
+- Add tab-completion
+- More built-in commands
 
+---
+
+## 📜 License
+This project is open-source (for educational purposes).  
+Feel free to use and modify it with credit.
+
+---
