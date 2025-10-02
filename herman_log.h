@@ -5,4 +5,3 @@ void log_msg(const char *format, ...);
 void log_error(const char *format, ...);
 
 #endif
-
