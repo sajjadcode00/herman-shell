@@ -32,4 +32,3 @@ void log_error(const char *format, ...) {
     write_log("ERROR", format, args);
     va_end(args);
 }
-
