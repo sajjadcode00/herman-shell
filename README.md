@@ -38,8 +38,8 @@ herman-shell/
 ├── herman.c        # main source code
 ├── herman_log.c    # logging functions
 ├── herman_log.h    # logging header
-├── my_lib.h        # custom helper functions/macros
-├── config.h        # configuration constants
+├── my_lib.h        # custom helper library
+├── config.h        # configuration constants /macros/
 ├── Makefile        # build instructions
 └── README.md       # project documentation
 ```
